@@ -10,7 +10,7 @@ using Rewired;
 
 namespace SLine
 {
-    [BepInPlugin("com.sline", "SLine Target Mod", "1.0.0")]
+    [BepInPlugin("com.sline", "SLine Target Mod", "1.5")]
     public class SLineMod : BaseUnityPlugin
     {
         public static ConfigEntry<bool> GlobalToggle;
@@ -209,15 +209,13 @@ namespace SLine
                 foreach (var baseIcon in icons)
                 {
                     var icon = baseIcon as UnitMapIcon;
-                    
-                    bool unitIsPlayerHq = GameManager.IsLocalHQ(icon.unit.NetworkHQ);
-                    
-                    if (!unitIsPlayerHq && SLineMod.ShowFriendlyOnly.Value)
+                    if (icon == null || icon.unit == null || !icon.gameObject.activeInHierarchy) continue;
+
+                    if (SLineMod.ShowFriendlyOnly.Value && !GameManager.IsLocalHQ(icon.unit.NetworkHQ))
                     {
+                        HideLine(icon, lines);
                         continue;
                     }
-                    
-                    if (icon == null || icon.unit == null || !icon.gameObject.activeInHierarchy) continue;
 
                     string category;
                     bool categoryToggled = false;
