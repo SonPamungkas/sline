@@ -7,6 +7,7 @@ using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
 using Rewired;
+using InputFramework;
 
 namespace SLine
 {
@@ -35,6 +36,8 @@ namespace SLine
         public static Dictionary<string, ConfigEntry<bool>> UnitWhitelists = new Dictionary<string, ConfigEntry<bool>>();
 
         public static SLineMod Instance;
+        
+        public static bool MapExists;
 
         private void Awake()
         {
@@ -52,11 +55,11 @@ namespace SLine
 
             // Register custom input actions via in-game controls system
             ExtraInputManager.LoadPendingActions();
-            ExtraInputManager.RegisterAction("ToggleAircraftLines", Rewired.InputActionType.Button);
-            ExtraInputManager.RegisterAction("ToggleGroundLines", Rewired.InputActionType.Button);
-            ExtraInputManager.RegisterAction("ToggleShipLines", Rewired.InputActionType.Button);
-            ExtraInputManager.RegisterAction("ToggleMissileLines", Rewired.InputActionType.Button);
-            ExtraInputManager.RegisterAction("ToggleCruiseMissileLines", Rewired.InputActionType.Button);
+            ExtraInputManager.RegisterAction("ToggleAircraftLines", Rewired.InputActionType.Button, "Debug");
+            ExtraInputManager.RegisterAction("ToggleGroundLines", Rewired.InputActionType.Button, "Debug");
+            ExtraInputManager.RegisterAction("ToggleShipLines", Rewired.InputActionType.Button, "Debug");
+            ExtraInputManager.RegisterAction("ToggleMissileLines", Rewired.InputActionType.Button, "Debug");
+            ExtraInputManager.RegisterAction("ToggleCruiseMissileLines", Rewired.InputActionType.Button, "Debug");
 
             var harmony = new Harmony("com.sline");
             harmony.PatchAll();
@@ -109,7 +112,7 @@ namespace SLine
 
         private void Update()
         {
-            if (!ExtraInputManager.RewiredInitialized) return;
+            if (!MapExists) return;
 
             bool inChat = false;
             try { inChat = CursorManager.GetFlag(CursorFlags.Chat); } catch {}
@@ -416,214 +419,22 @@ namespace SLine
             DynamicMap_Update_Patch.ExternalCleanup(__instance);
         }
     }
-
-    [HarmonyPatch(typeof(InputManager_Base), "Awake")]
-    public static class RewiredActionInjector
+    
+    [HarmonyPatch]
+    public class DynamicMapPatches
     {
-        static void Prefix(InputManager_Base __instance)
+        [HarmonyPatch(typeof(DynamicMap), nameof(DynamicMap.OnEnable))]
+        [HarmonyPostfix]
+        private static void OnMapEnablePostfix()
         {
-            UnityEngine.Debug.Log("RewiredActionInjector: InputManager_Base.Awake Prefix triggered!");
-            try
-            {
-                InjectActions(__instance);
-            }
-            catch (System.Exception ex)
-            {
-                UnityEngine.Debug.LogError($"RewiredActionInjector: Exception in Prefix/InjectActions: {ex}");
-            }
+            SLineMod.MapExists = true;
         }
-
-        private static void InjectActions(InputManager_Base manager)
+        
+        [HarmonyPatch(typeof(DynamicMap), nameof(DynamicMap.OnDestroy))]
+        [HarmonyPostfix]
+        private static void OnMapDestroyPostfix()
         {
-            UnityEngine.Debug.Log("RewiredActionInjector: Starting InjectActions...");
-            
-            var userDataField = typeof(InputManager_Base).GetField("_userData", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public);
-            if (userDataField == null)
-            {
-                UnityEngine.Debug.LogWarning("RewiredActionInjector: _userData field not found on InputManager_Base!");
-                return;
-            }
-            
-            UnityEngine.Debug.Log("RewiredActionInjector: Found _userData field, retrieving value...");
-            var userData = userDataField.GetValue(manager);
-            if (userData == null)
-            {
-                UnityEngine.Debug.LogWarning("RewiredActionInjector: _userData value is null on InputManager_Base!");
-                return;
-            }
-            
-            UnityEngine.Debug.Log($"RewiredActionInjector: Found _userData ({userData.GetType().FullName}). Retrieving actions list...");
-
-            // Get actions list
-            var actionsField = userData.GetType().GetField("actions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            var actions = actionsField?.GetValue(userData) as System.Collections.Generic.List<InputAction>;
-            if (actions == null)
-            {
-                UnityEngine.Debug.Log("RewiredActionInjector: actions field cast failed, trying property...");
-                var actionsProp = userData.GetType().GetProperty("actions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                actions = actionsProp?.GetValue(userData) as System.Collections.Generic.List<InputAction>;
-            }
-            
-            if (actions == null)
-            {
-                UnityEngine.Debug.LogWarning("RewiredActionInjector: actions list is null!");
-                return;
-            }
-            UnityEngine.Debug.Log($"RewiredActionInjector: Found actions list with {actions.Count} existing actions. Retrieving categories...");
-
-            // Get actionCategories list
-            var categoriesField = userData.GetType().GetField("actionCategories", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            var categories = categoriesField?.GetValue(userData) as System.Collections.Generic.List<InputCategory>;
-            if (categories == null)
-            {
-                UnityEngine.Debug.Log("RewiredActionInjector: actionCategories field cast failed, trying property...");
-                var categoriesProp = userData.GetType().GetProperty("actionCategories", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                categories = categoriesProp?.GetValue(userData) as System.Collections.Generic.List<InputCategory>;
-            }
-            
-            if (categories == null)
-            {
-                UnityEngine.Debug.LogWarning("RewiredActionInjector: actionCategories list is null!");
-                return;
-            }
-            UnityEngine.Debug.Log($"RewiredActionInjector: Found categories list with {categories.Count} categories.");
-
-            InputCategory debugCategory = null;
-            foreach (var c in categories)
-            {
-                if (c.name == "Debug")
-                {
-                    debugCategory = c;
-                    break;
-                }
-            }
-            if (debugCategory == null)
-            {
-                UnityEngine.Debug.Log("RewiredActionInjector: 'Debug' category not found, falling back to first category.");
-                if (categories.Count > 0)
-                {
-                    debugCategory = categories[0];
-                }
-            }
-
-            if (debugCategory == null)
-            {
-                UnityEngine.Debug.LogWarning("RewiredActionInjector: No categories found at all!");
-                return;
-            }
-            UnityEngine.Debug.Log($"RewiredActionInjector: Selected category is '{debugCategory.name}' (id={debugCategory.id}).");
-
-            int nextId = GetNextActionId(actions);
-            UnityEngine.Debug.Log($"RewiredActionInjector: Determined nextActionId = {nextId}. Injecting pending actions...");
-
-            foreach (var modAction in ExtraInputManager.PendingActions)
-            {
-                UnityEngine.Debug.Log($"RewiredActionInjector: Processing pending action '{modAction.Name}'...");
-                bool exists = false;
-                foreach (var a in actions)
-                {
-                    if (a.name == modAction.Name)
-                    {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (exists)
-                {
-                    UnityEngine.Debug.Log($"RewiredActionInjector: Action '{modAction.Name}' already exists, skipping injection.");
-                    continue;
-                }
-
-                var action = new InputAction();
-                SetField(action, "id", nextId++);
-                SetField(action, "name", modAction.Name);
-                SetField(action, "type", modAction.Type);
-                SetField(action, "descriptiveName", modAction.Name);
-                SetField(action, "categoryId", debugCategory.id);
-                SetField(action, "_userAssignable", true);
-
-                actions.Add(action);
-                UnityEngine.Debug.Log($"RewiredActionInjector: Injected '{modAction.Name}' action object into list.");
-
-                // Invoke userData.actionCategoryMap.AddAction(categoryId, actionId)
-                var categoryMapField = userData.GetType().GetField("actionCategoryMap", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                var categoryMap = categoryMapField?.GetValue(userData);
-                if (categoryMap != null)
-                {
-                    var addActionMethod = categoryMap.GetType().GetMethod("AddAction", new System.Type[] { typeof(int), typeof(int) });
-                    if (addActionMethod != null)
-                    {
-                        addActionMethod.Invoke(categoryMap, new object[] { debugCategory.id, action.id });
-                        UnityEngine.Debug.Log($"RewiredActionInjector: Mapped '{modAction.Name}' (ID={action.id}) to category (ID={debugCategory.id}) in categoryMap.");
-                    }
-                    else
-                    {
-                        UnityEngine.Debug.LogWarning("RewiredActionInjector: AddAction method not found on actionCategoryMap!");
-                    }
-                }
-                else
-                {
-                    UnityEngine.Debug.LogWarning("RewiredActionInjector: actionCategoryMap field is null!");
-                }
-
-                modAction.AssignedId = action.id;
-            }
-            ExtraInputManager.RewiredInitialized = true;
-            UnityEngine.Debug.Log("RewiredActionInjector: Action injection successfully completed!");
-        }
-
-        private static void SetField(object obj, string fieldName, object value)
-        {
-            if (obj == null) return;
-            var t = obj.GetType();
-            
-            // Try setting direct field
-            var field = t.GetField(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            if (field != null)
-            {
-                field.SetValue(obj, value);
-                return;
-            }
-
-            // Try backing field name
-            string backingName = $"<{fieldName}>k__BackingField";
-            field = t.GetField(backingName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (field != null)
-            {
-                field.SetValue(obj, value);
-                return;
-            }
-
-            // Try with prefix underscore
-            field = t.GetField("_" + fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            if (field != null)
-            {
-                field.SetValue(obj, value);
-                return;
-            }
-
-            // Try setting property if writable
-            var prop = t.GetProperty(fieldName, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-            if (prop != null && prop.CanWrite)
-            {
-                prop.SetValue(obj, value, null);
-            }
-        }
-
-        private static int GetNextActionId(System.Collections.Generic.List<InputAction> actions)
-        {
-            if (actions.Count == 0)
-                return 1000;
-
-            int maxId = 1000;
-            foreach (var a in actions)
-            {
-                if (a.id > maxId)
-                {
-                    maxId = a.id;
-                }
-            }
-            return maxId + 1;
+            SLineMod.MapExists = false;
         }
     }
 }
